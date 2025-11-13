@@ -17,6 +17,8 @@ Pixhawk, Pixracer и [COEX Pix](coex_pix.md) можно прошить, испо
 </ul>
 </div>
 
+> **Warning** Если вы используете прошивку с версией ниже, чем *v1.10* (например `v1.8.2-clover.13`), то во избежание ошибок конфигурирования полётного контроллера, используйте [QGroundControl версии *v4.2.0*](https://github.com/mavlink/qgroundcontrol/releases/tag/v4.2.0) (или ниже). См. [подробную информацию](https://docs.px4.io/v1.11/en/config/battery.html#parameter-migration-notes) об изменениях в параметрах, которые вызывают ошибки в более новых версиях QGroundControl.
+
 <script type="text/javascript">
     // get latest release from GitHub
     fetch('https://api.github.com/repos/CopterExpress/Firmware/releases').then(function(res) {
@@ -79,19 +81,19 @@ PX4 может быть собран из исходников и загруже
 Для это склонируйте репозиторий PX4:
 
 ```bash
-git clone https://github.com/PX4/Firmware.git
+git clone https://github.com/PX4/PX4-Autopilot.git
 ```
 
 Выберите необходимую версию (тэг) с помощью `git checkout`. Затем соберите и загрузите прошивку:
 
-```
-make px4fmu-v4_default upload
+```bash
+make px4_fmu-v4_default upload
 ```
 
-Где `px4fmu-v4_default` – требуемый вариант прошивки.
+Где `px4_fmu-v4_default` – требуемый вариант прошивки.
 
 Для загрузки прошивки `v3` в Pixhawk может понадобиться команда `force_upload`:
 
-```
-make px4fmu-v3_default force-upload
+```bash
+make px4_fmu-v3_default force-upload
 ```

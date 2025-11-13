@@ -6,7 +6,7 @@ Software autorun
 systemd
 ---
 
-Main documentation: [https://wiki.archlinux.org/index.php/Systemd_(Russian)](https://wiki.archlinux.org/index.php/Systemd_(Russian)).
+Main documentation: https://wiki.archlinux.org/title/Systemd.
 
 All automatically started Clover software is launched as a `clover.service` systemd service.
 
@@ -42,7 +42,7 @@ Main documentation: http://wiki.ros.org/roslaunch.
 
 The list of nodes / programs declared for running is specified in file `/home/pi/catkin_ws/src/clover/clover/launch/clover.launch`.
 
-You can add your own node to the list of automatically launched ones. To do this, place your executable file (e.g. `my_program.py`) into folder `/home/pi/catkin_ws/src/clover/clover/src`. Then add the start of your node to `clover.launch`, for example:
+You can add your own node to the list of automatically launched ones. To do this, place your executable file (e.g. `my_program.py`) into folder `/home/pi/catkin_ws/src/clover/clover`. Then add the start of your node to `clover.launch`, for example:
 
 ```xml
 <node name="my_program" pkg="clover" type="my_program.py" output="screen"/>
@@ -50,12 +50,12 @@ You can add your own node to the list of automatically launched ones. To do this
 
 The started file must have *permission* to run:
 
-```(bash)
+```bash
 chmod +x my_program.py
 ```
 
-When scripting languages are used, [shebang] should be placed at the beginning of the file (https://ru.wikipedia.org/wiki/Shebang_(Unix)), for example:
+When scripting languages are used, a <a href="https://en.wikipedia.org/wiki/Shebang_(Unix)">shebang</a> should be placed at the beginning of the file, for example:
 
-```(bash)
-#!/usr/bin/env python
+```bash
+#!/usr/bin/env python3
 ```

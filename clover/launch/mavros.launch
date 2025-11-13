@@ -1,5 +1,5 @@
 <launch>
-    <arg name="fcu_conn" default="usb"/> <!-- options: usb, uart, tcp, udp, sitl -->
+    <arg name="fcu_conn" default="usb"/> <!-- options: usb, uart, tcp, udp, sitl, hitl -->
     <arg name="fcu_ip" default="127.0.0.1"/>
     <arg name="fcu_sys_id" default="1"/>
     <arg name="gcs_bridge" default="tcp"/>
@@ -23,6 +23,9 @@
         <!-- sitl since PX4 1.9.0 -->
         <param name="fcu_url" value="udp://@$(arg fcu_ip):14580" if="$(eval fcu_conn == 'sitl')"/>
 
+        <!-- hitl connection (to gazebo_mavlink_interface plugin) -->
+        <param name="fcu_url" value="udp://$(arg fcu_ip):14540@" if="$(eval fcu_conn == 'hitl')"/>
+
         <!-- set target_system_id -->
         <param name="target_system_id" value="$(arg fcu_sys_id)" />
 
@@ -39,7 +42,7 @@
         <rosparam command="load" file="$(find clover)/launch/mavros_config.yaml"/>
 
         <!-- remap rangefinder -->
-        <remap from="mavros/distance_sensor/rangefinder_sub" to="rangefinder/range"/>
+        <remap from="mavros/distance_sensor/rangefinder_sub" to="$(arg distance_sensor_remap)" if="$(eval bool(distance_sensor_remap))"/>
 
         <rosparam param="plugin_whitelist">
             - altitude
@@ -73,9 +76,6 @@
         orientation: PITCH_270
         covariance: 1  # cm
     </rosparam>
-
-    <!-- Rangefinders frame -->
-    <node pkg="tf2_ros" type="static_transform_publisher" name="rangefinder_frame" args="0 0 -0.05 0 1.5707963268 0 base_link rangefinder"/>
 
     <!-- Copter visualization -->
     <node name="visualization" pkg="mavros_extras" type="visualization" if="$(arg viz)">

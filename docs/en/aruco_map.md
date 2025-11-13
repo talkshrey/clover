@@ -93,7 +93,7 @@ The marker map adheres to the [ROS coordinate system convention](http://www.ros.
 
 ## VPE setup
 
-In order to enable vision position estimation you should use the following [PX4 parameters](px4_parameters.md).
+In order to enable vision position estimation you should use the following [PX4 parameters](parameters.md).
 
 If you're using **LPE** (`SYS_MC_EST_GROUP` parameter is set to `local_position_estimator,attitude_estimator_q`):
 
@@ -136,7 +136,7 @@ navigate(x=2, y=2, z=2, speed=1, frame_id='aruco_map')
 
 ### Using a specific marker frame
 
-Starting with the [image](image.md) version 0.18, the drone also can fly relative to a marker in the map, even if it is not currently visible. Like with [single-marker navigation](aruco_marker.md#working-with-detected-markers), this works by setting the frame_id parameter to aruco_ID, where ID is the desired marker number.
+Starting with the [image](image.md) version 0.18, the drone also can fly relative to a marker in the map, even if it is not currently visible. Like with [single-marker navigation](aruco_marker.md#working-with-detected-markers), this works by setting the frame_id parameter to `aruco_ID`, where ID is the desired marker number.
 
 The following code will move the drone to the point 1 meter above the center of marker 5:
 

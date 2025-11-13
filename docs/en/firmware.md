@@ -17,6 +17,8 @@ It is advisable to use a specialized build of PX4 with the necessary fixes and b
 </ul>
 </div>
 
+> **Warning** If you are using the firmware version older than *v1.10* (for example, `v1.8.2-clover.13`), then in order to avoid configuration errors, use [QGroundControl version *v4.2.0*](https://github.com/mavlink/qgroundcontrol/releases/tag/v4.2.0) (or older). See [detailed information](https://docs.px4.io/v1.11/en/config/battery.html#parameter-migration-notes) about changes in the firmware parameters that cause errors in newer versions of QGroundControl.
+
 <script type="text/javascript">
     // get latest release from GitHub
     fetch('https://api.github.com/repos/CopterExpress/Firmware/releases').then(function(res) {
@@ -77,19 +79,19 @@ PX4 may be compiled from the source and automatically flashed to the flight cont
 To do this, clone the PX4 repository:
 
 ```bash
-git clone https://github.com/PX4/Firmware.git
+git clone https://github.com/PX4/PX4-Autopilot.git
 ```
 
 Select the appropriate version (tag) using `git checkout`. Then compile and upload the firmware:
 
-```
-make px4fmu-v4_default upload
+```bash
+make px4_fmu-v4_default upload
 ```
 
-Where `px4fmu-v4_default` is the required firmware variant.
+Where `px4_fmu-v4_default` is the required firmware variant.
 
 In order to upload the `v3` firmware to Pixhawk, you may need to use the `force_upload` option:
 
-```
-make px4fmu-v3_default force-upload
+```bash
+make px4_fmu-v3_default force-upload
 ```

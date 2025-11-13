@@ -13,7 +13,7 @@
 # copies or substantial portions of the Software.
 #
 
-set -e # Exit immidiately on non-zero result
+set -ex # exit on error, echo commands
 
 REPO=$1
 REF=$2
@@ -49,7 +49,7 @@ echo_stamp() {
 my_travis_retry() {
   local result=0
   local count=1
-  local max_count=50
+  local max_count=5
   while [ $count -le $max_count ]; do
     [ $result -ne 0 ] && {
       echo -e "\nThe command \"$@\" failed. Retrying, $count of $max_count.\n" >&2
@@ -72,7 +72,7 @@ my_travis_retry() {
 echo_stamp "Init rosdep"
 my_travis_retry rosdep init
 # FIXME: Re-add this after missing packages are built
-echo "yaml file:///etc/ros/rosdep/${ROS_DISTRO}-rosdep-clover.yaml" >> /etc/ros/rosdep/sources.list.d/20-default.list
+echo "yaml file:///etc/ros/rosdep/${ROS_DISTRO}-rosdep-clover.yaml" >> /etc/ros/rosdep/sources.list.d/10-clover.list
 my_travis_retry rosdep update
 
 echo_stamp "Populate rosdep for ROS user"
@@ -90,7 +90,7 @@ echo_stamp "Installing OpenCV 4.2-compatible ROS packages"
 apt install -y --no-install-recommends \
 ros-${ROS_DISTRO}-compressed-image-transport=1.14.0-0buster \
 ros-${ROS_DISTRO}-cv-bridge=1.15.0-0buster \
-ros-${ROS_DISTRO}-cv-camera=0.5.0-0buster \
+ros-${ROS_DISTRO}-cv-camera=0.5.1-0buster \
 ros-${ROS_DISTRO}-image-publisher=1.15.3-0buster \
 ros-${ROS_DISTRO}-web-video-server=0.2.1-0buster
 apt-mark hold \
@@ -112,7 +112,7 @@ my_travis_retry pip3 install wheel
 my_travis_retry pip3 install -r /home/pi/catkin_ws/src/clover/clover/requirements.txt
 source /opt/ros/${ROS_DISTRO}/setup.bash
 # Don't build simulation plugins for actual drone
-catkin_make -j2 -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCATKIN_BLACKLIST_PACKAGES=clover_gazebo_plugins
+catkin_make -j2 -DCMAKE_BUILD_TYPE=RelWithDebInfo
 source devel/setup.bash
 
 echo_stamp "Install clever package (for backwards compatibility)"
@@ -125,11 +125,12 @@ cd /home/pi/catkin_ws/src/clover
 builder/assets/install_gitbook.sh
 gitbook install
 gitbook build
+# replace assets copy to assets symlink to save space
+rm -rf _book/assets && ln -s ../docs/assets _book/assets
 touch node_modules/CATKIN_IGNORE docs/CATKIN_IGNORE _book/CATKIN_IGNORE clover/www/CATKIN_IGNORE apps/CATKIN_IGNORE # ignore documentation files by catkin
 
 echo_stamp "Installing additional ROS packages"
 my_travis_retry apt-get install -y --no-install-recommends \
-    ros-${ROS_DISTRO}-dynamic-reconfigure \
     ros-${ROS_DISTRO}-rosbridge-suite \
     ros-${ROS_DISTRO}-rosserial \
     ros-${ROS_DISTRO}-usb-cam \
@@ -137,7 +138,11 @@ my_travis_retry apt-get install -y --no-install-recommends \
     ros-${ROS_DISTRO}-ws281x \
     ros-${ROS_DISTRO}-rosshow \
     ros-${ROS_DISTRO}-cmake-modules \
-    ros-${ROS_DISTRO}-image-view
+    ros-${ROS_DISTRO}-image-view \
+    ros-${ROS_DISTRO}-nodelet-topic-tools \
+    ros-${ROS_DISTRO}-stereo-msgs \
+    ros-${ROS_DISTRO}-vision-msgs \
+    ros-${ROS_DISTRO}-angles
 
 # TODO move GeographicLib datasets to Mavros debian package
 echo_stamp "Install GeographicLib datasets (needed for mavros)" \
@@ -150,6 +155,9 @@ catkin_make run_tests #&& catkin_test_results
 
 echo_stamp "Change permissions for catkin_ws"
 chown -Rf pi:pi /home/pi/catkin_ws
+
+echo_stamp "Update www"
+sudo -u pi sh -c ". devel/setup.sh && rosrun clover www"
 
 echo_stamp "Make \$HOME/examples symlink"
 ln -s "$(catkin_find clover examples --first-only)" /home/pi

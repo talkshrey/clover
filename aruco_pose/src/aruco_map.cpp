@@ -19,11 +19,13 @@
 #include <vector>
 #include <fstream>
 #include <algorithm>
+#include <memory>
 #include <ros/ros.h>
 #include <nodelet/nodelet.h>
 #include <pluginlib/class_list_macros.h>
 #include <image_transport/image_transport.h>
 #include <cv_bridge/cv_bridge.h>
+#include <dynamic_reconfigure/server.h>
 #include <tf/transform_datatypes.h>
 #include <tf2_ros/buffer.h>
 #include <tf2_ros/transform_listener.h>
@@ -41,6 +43,7 @@
 
 #include <aruco_pose/MarkerArray.h>
 #include <aruco_pose/Marker.h>
+#include <aruco_pose/MapConfig.h>
 
 #include <opencv2/opencv.hpp>
 #include <opencv2/aruco.hpp>
@@ -74,10 +77,13 @@ private:
 	tf2_ros::StaticTransformBroadcaster static_br_;
 	tf2_ros::Buffer tf_buffer_;
 	tf2_ros::TransformListener tf_listener_{tf_buffer_};
+	std::shared_ptr<dynamic_reconfigure::Server<aruco_pose::MapConfig>> dyn_srv_;
+	bool enabled_ = true;
+	std::string type_;
 	visualization_msgs::MarkerArray vis_array_;
-	std::string known_tilt_, map_, markers_frame_, markers_parent_frame_;
+	std::string known_vertical_, map_, markers_frame_, markers_parent_frame_;
 	int image_width_, image_height_, image_margin_;
-	bool auto_flip_, image_axis_;
+	bool flip_vertical_, auto_flip_, image_axis_, put_markers_count_to_covariance_;
 
 public:
 	virtual void onInit()
@@ -89,34 +95,35 @@ public:
 
 		// TODO: why image_transport doesn't work here?
 		img_pub_ = nh_priv_.advertise<sensor_msgs::Image>("image", 1, true);
-		markers_pub_ = nh_priv_.advertise<aruco_pose::MarkerArray>("markers", 1, true);
+		markers_pub_ = nh_priv_.advertise<aruco_pose::MarkerArray>("map", 1, true);
 
 		board_ = cv::makePtr<cv::aruco::Board>();
 		board_->dictionary = cv::aruco::getPredefinedDictionary(
 			                 static_cast<cv::aruco::PREDEFINED_DICTIONARY_NAME>(nh_priv_.param("dictionary", 2)));
 		camera_matrix_ = cv::Mat::zeros(3, 3, CV_64F);
 
-		std::string type, map;
-		type = nh_priv_.param<std::string>("type", "map");
+		type_ = nh_priv_.param<std::string>("type", "map");
 		transform_.child_frame_id = nh_priv_.param<std::string>("frame_id", "aruco_map");
-		known_tilt_ = nh_priv_.param<std::string>("known_tilt", "");
+		known_vertical_ = nh_priv_.param("known_vertical", nh_priv_.param("known_tilt", std::string(""))); // known_tilt is an old name
+		flip_vertical_ = nh_priv_.param<bool>("flip_vertical", false);
 		auto_flip_ = nh_priv_.param("auto_flip", false);
 		image_width_ = nh_priv_.param("image_width" , 2000);
 		image_height_ = nh_priv_.param("image_height", 2000);
 		image_margin_ = nh_priv_.param("image_margin", 200);
 		image_axis_ = nh_priv_.param("image_axis", true);
+		put_markers_count_to_covariance_ = nh_priv_.param("put_markers_count_to_covariance", false);
 		markers_parent_frame_ = nh_priv_.param<std::string>("markers/frame_id", transform_.child_frame_id);
 		markers_frame_ = nh_priv_.param<std::string>("markers/child_frame_id_prefix", "");
 
 		// createStripLine();
 
-		if (type == "map") {
-			param(nh_priv_, "map", map);
-			loadMap(map);
-		} else if (type == "gridboard") {
+		if (type_ == "map") {
+			map_ = nh_priv_.param<std::string>("map" , "");
+			loadMap(map_);
+		} else if (type_ == "gridboard") {
 			createGridBoard(nh_priv_);
 		} else {
-			NODELET_FATAL("unknown type: %s", type.c_str());
+			NODELET_FATAL("unknown type: %s", type_.c_str());
 			ros::shutdown();
 		}
 
@@ -124,10 +131,7 @@ public:
 		vis_markers_pub_ = nh_priv_.advertise<visualization_msgs::MarkerArray>("visualization", 1, true);
 		debug_pub_ = it_priv.advertise("debug", 1);
 
-		publishMarkersFrames();
-		publishMarkers();
-		publishMapImage();
-		vis_markers_pub_.publish(vis_array_);
+		publishMap();
 
 		image_sub_.subscribe(nh_, "image_raw", 1);
 		info_sub_.subscribe(nh_, "camera_info", 1);
@@ -136,6 +140,12 @@ public:
 		sync_.reset(new message_filters::Synchronizer<SyncPolicy>(SyncPolicy(10), image_sub_, info_sub_, markers_sub_));
 		sync_->registerCallback(boost::bind(&ArucoMap::callback, this, _1, _2, _3));
 
+		dyn_srv_ = std::make_shared<dynamic_reconfigure::Server<aruco_pose::MapConfig>>(nh_priv_);
+		dynamic_reconfigure::Server<aruco_pose::MapConfig>::CallbackType cb;
+
+		cb = std::bind(&ArucoMap::paramCallback, this, std::placeholders::_1, std::placeholders::_2);
+		dyn_srv_->setCallback(cb);
+
 		NODELET_INFO("ready");
 	}
 
@@ -143,6 +153,9 @@ public:
 	              const sensor_msgs::CameraInfoConstPtr& cinfo,
 	              const aruco_pose::MarkerArrayConstPtr& markers)
 	{
+		if (!enabled_) return;
+		if (markers->markers.empty()) return; // map not loaded
+
 		int valid = 0;
 		int count = markers->markers.size();
 		std::vector<int> ids;
@@ -166,7 +179,21 @@ public:
 			corners.push_back(marker_corners);
 		}
 
-		if (known_tilt_.empty()) {
+		if (put_markers_count_to_covariance_) {
+			// HACK: pass markers count using covariance field
+			int valid_markers = 0;
+			for (auto const &marker : markers->markers) {
+				for (auto const &board_marker : board_->ids) {
+					if (board_marker == marker.id) {
+						valid_markers++;
+						break;
+					}
+				}
+			}
+			pose_.pose.covariance[0] = valid_markers;
+		}
+
+		if (known_vertical_.empty()) {
 			// simple estimation
 			valid = cv::aruco::estimatePoseBoard(corners, ids, board_, camera_matrix_, dist_coeffs_,
 			                                     rvec, tvec, false);
@@ -180,7 +207,7 @@ public:
 
 		} else {
 			Mat obj_points, img_points;
-			// estimation with "snapping"
+			// estimation with known vertical
 			cv::aruco::getBoardObjectAndImagePoints(board_, corners, ids, obj_points, img_points);
 			if (obj_points.empty()) goto publish_debug;
 
@@ -192,11 +219,11 @@ public:
 
 			fillTransform(transform_.transform, rvec, tvec);
 			try {
-				geometry_msgs::TransformStamped snap_to = tf_buffer_.lookupTransform(markers->header.frame_id,
-				                                          known_tilt_, markers->header.stamp, ros::Duration(0.02));
-				snapOrientation(transform_.transform.rotation, snap_to.transform.rotation, auto_flip_);
+				geometry_msgs::TransformStamped vertical = tf_buffer_.lookupTransform(markers->header.frame_id,
+				                                           known_vertical_, markers->header.stamp, ros::Duration(0.02));
+				applyVertical(transform_.transform.rotation, vertical.transform.rotation, flip_vertical_, auto_flip_);
 			} catch (const tf2::TransformException& e) {
-				NODELET_WARN_THROTTLE(1, "can't snap: %s", e.what());
+				NODELET_WARN_THROTTLE(1, "can't retrieve known vertical: %s", e.what());
 			}
 
 			geometry_msgs::TransformStamped shift;
@@ -268,9 +295,17 @@ publish_debug:
 		std::ifstream f(filename);
 		std::string line;
 
+		clearMarkers();
+
+		if (map_ == "") {
+			NODELET_INFO("No map loaded");
+			return;
+		}
+
 		if (!f.good()) {
-			NODELET_FATAL("%s - %s", strerror(errno), filename.c_str());
-			ros::shutdown();
+			NODELET_ERROR("%s - %s", strerror(errno), filename.c_str());
+			map_ = "";
+			return;
 		}
 
 		while (std::getline(f, line)) {
@@ -296,9 +331,10 @@ publish_debug:
 				s.putback(first);
 			} else {
 				// Probably garbage data; inform user and throw an exception, possibly killing nodelet
-				NODELET_FATAL("Malformed input: %s", line.c_str());
-				ros::shutdown();
-				throw std::runtime_error("Malformed input");
+				NODELET_ERROR("Malformed input: %s", line.c_str());
+				map_ = "";
+				clearMarkers();
+				return;
 			}
 
 			if (!(s >> id >> length >> x >> y)) {
@@ -327,6 +363,14 @@ publish_debug:
 		}
 
 		NODELET_INFO("loading %s complete (%d markers)", filename.c_str(), static_cast<int>(board_->ids.size()));
+	}
+
+	void publishMap()
+	{
+		publishMarkersFrames();
+		publishMarkers();
+		publishMapImage();
+		vis_markers_pub_.publish(vis_array_);
 	}
 
 	void createGridBoard(ros::NodeHandle& nh)
@@ -368,6 +412,15 @@ publish_debug:
 				addMarker(marker_ids[y * markers_y + x], markers_side, x_pos, y_pos, 0, 0, 0, 0);
 			}
 		}
+	}
+
+	void clearMarkers()
+	{
+		board_->ids.clear();
+		board_->objPoints.clear();
+		markers_.markers.clear();
+		vis_array_.markers.clear();
+		markers_transforms_.clear();
 	}
 
 	// void createStripLine()
@@ -466,7 +519,7 @@ publish_debug:
 		vis_marker.pose.position.x = x;
 		vis_marker.pose.position.y = y;
 		vis_marker.pose.position.z = z;
-		tf::quaternionTFToMsg(q, marker.pose.orientation);
+		tf::quaternionTFToMsg(q, vis_marker.pose.orientation);
 		vis_marker.frame_locked = true;
 		vis_array_.markers.push_back(vis_marker);
 
@@ -508,6 +561,22 @@ publish_debug:
 
 		msg.image = image;
 		img_pub_.publish(msg.toImageMsg());
+	}
+
+	void paramCallback(aruco_pose::MapConfig &config, uint32_t level)
+	{
+		// https://github.com/CopterExpress/clover/commit/2cd334c474e3ed04ef65ca1ba7f08ab535a3dc6d#diff-942723f9452c398ae93f1a91427f9a7b614be5e5871f8a3e590f324d804f0d58R356
+		enabled_ = config.enabled;
+		if (type_ == "map" && config.map != map_) {
+			map_ = config.map;
+			loadMap(map_);
+			publishMap();
+		}
+
+		if (config.image_axis != image_axis_) {
+			image_axis_ = config.image_axis;
+			publishMapImage();
+		}
 	}
 };
 

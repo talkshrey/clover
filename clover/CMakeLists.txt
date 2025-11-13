@@ -17,6 +17,7 @@ find_package(catkin REQUIRED COMPONENTS
   message_generation
   geometry_msgs
   sensor_msgs
+  led_msgs
   geographic_msgs
   tf
   tf2
@@ -24,10 +25,13 @@ find_package(catkin REQUIRED COMPONENTS
   tf2_ros
   image_transport
   cv_bridge
+  dynamic_reconfigure
 )
 
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_LIST_DIR}/cmake")
 
+# https://github.com/mavlink/mavros/blob/7f1a8/mavros/CMakeLists.txt#L42
+set(CMAKE_MODULE_PATH "${CMAKE_MODULE_PATH};/usr/share/cmake/geographiclib")
 find_package(GeographicLib REQUIRED)
 
 # Workaround for OpenCV 3/4 support
@@ -51,7 +55,7 @@ find_package(OpenCV ${_opencv_version} REQUIRED
 ## Uncomment this if the package has a setup.py. This macro ensures
 ## modules and global scripts declared therein get installed
 ## See http://ros.org/doc/api/catkin/html/user_guide/setup_dot_py.html
-# catkin_python_setup()
+catkin_python_setup()
 
 ################################################
 ## Declare ROS messages, services and actions ##
@@ -78,11 +82,10 @@ find_package(OpenCV ${_opencv_version} REQUIRED
 ##   * add every package in MSG_DEP_SET to generate_messages(DEPENDENCIES ...)
 
 ## Generate messages in the 'msg' folder
-# add_message_files(
-#   FILES
-#   Message1.msg
-#   Message2.msg
-# )
+add_message_files(
+  FILES
+  State.msg
+)
 
 ## Generate services in the 'srv' folder
 add_service_files(
@@ -90,6 +93,9 @@ add_service_files(
   GetTelemetry.srv
   Navigate.srv
   NavigateGlobal.srv
+  SetAltitude.srv
+  SetYaw.srv
+  SetYawRate.srv
   SetPosition.srv
   SetVelocity.srv
   SetAttitude.srv
@@ -126,10 +132,9 @@ generate_messages(
 ##     and list every .cfg file to be processed
 
 ## Generate dynamic reconfigure parameters in the 'cfg' folder
-# generate_dynamic_reconfigure_options(
-#   cfg/DynReconf1.cfg
-#   cfg/DynReconf2.cfg
-# )
+generate_dynamic_reconfigure_options(
+  cfg/Flow.cfg
+)
 
 ###################################
 ## catkin specific configuration ##
@@ -210,6 +215,8 @@ add_dependencies(simple_offboard ${PROJECT_NAME}_generate_messages_cpp)
 add_dependencies(clover_led ${PROJECT_NAME}_generate_messages_cpp)
 
 add_dependencies(shell ${PROJECT_NAME}_generate_messages_cpp)
+
+add_dependencies(${PROJECT_NAME} ${PROJECT_NAME}_gencfg)
 
 ## Rename C++ executable without prefix
 ## The above recommended prefix causes long target names, the following renames the
@@ -303,4 +310,5 @@ endif()
 if (CATKIN_ENABLE_TESTING)
   find_package(rostest REQUIRED)
   add_rostest(test/basic.test)
+  add_rostest(test/offboard.test)
 endif()

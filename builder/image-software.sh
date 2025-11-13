@@ -122,7 +122,7 @@ sed -i "s/updates_available//" /usr/share/byobu/status/status
 # sed -i "s/updates_available//" /home/pi/.byobu/status
 
 echo_stamp "Installing pip"
-curl https://bootstrap.pypa.io/get-pip.py -o get-pip.py
+curl https://bootstrap.pypa.io/pip/3.7/get-pip.py -o get-pip.py
 curl https://bootstrap.pypa.io/pip/2.7/get-pip.py -o get-pip2.py
 python3 get-pip.py
 python get-pip2.py
@@ -138,6 +138,7 @@ echo_stamp "Install and enable Butterfly (web terminal)"
 echo_stamp "Workaround for tornado >= 6.0 breaking butterfly"
 export CRYPTOGRAPHY_DONT_BUILD_RUST=1
 my_travis_retry pip3 install cryptography==3.4.6 # https://stackoverflow.com/a/68472128/6850197
+my_travis_retry pip3 install pyOpenSSL==20.0.1
 my_travis_retry pip3 install tornado==5.1.1
 my_travis_retry pip3 install butterfly
 my_travis_retry pip3 install butterfly[systemd]

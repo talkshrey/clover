@@ -11,12 +11,14 @@
 
 #include <string>
 #include <ros/ros.h>
+#include <tf/transform_datatypes.h>
 #include <tf2/transform_datatypes.h>
 #include <tf2_ros/buffer.h>
 #include <tf2_ros/transform_listener.h>
 #include <tf2_ros/static_transform_broadcaster.h>
 #include <tf2_geometry_msgs/tf2_geometry_msgs.h>
 #include <geometry_msgs/TransformStamped.h>
+#include <geometry_msgs/Quaternion.h>
 #include <geometry_msgs/PoseStamped.h>
 #include <geometry_msgs/PoseWithCovarianceStamped.h>
 #include <std_srvs/Trigger.h>
@@ -25,7 +27,7 @@
 using std::string;
 using namespace geometry_msgs;
 
-bool reset_flag = false;
+bool reset_flag = true; // offset should be reset on the start
 string local_frame_id, frame_id, child_frame_id, offset_frame_id;
 tf2_ros::Buffer tf_buffer;
 ros::Publisher vpe_pub;
@@ -33,14 +35,14 @@ ros::Subscriber local_position_sub;
 ros::Timer zero_timer;
 PoseStamped vpe, pose;
 ros::Time got_local_pos(0);
-ros::Duration publish_zero_timout, publish_zero_duration, offset_timeout;
+ros::Duration publish_zero_timeout, publish_zero_duration, offset_timeout;
 TransformStamped offset;
 
 void publishZero(const ros::TimerEvent& e)
 {
-	if (e.current_real - vpe.header.stamp < publish_zero_timout) return; // have vpe
+	if (!vpe.header.stamp.isZero() && e.current_real - vpe.header.stamp < publish_zero_timeout) return; // have vpe
 
-	if (e.current_real - pose.header.stamp < publish_zero_timout) { // have local position
+	if (!pose.header.stamp.isZero() && e.current_real - pose.header.stamp < publish_zero_timeout) { // have local position
 		if (got_local_pos.isZero()) {
 			ROS_INFO("got local position");
 			got_local_pos = e.current_real;
@@ -66,6 +68,13 @@ inline Pose getPose(const PoseStampedConstPtr& pose) { return pose->pose; }
 
 inline Pose getPose(const PoseWithCovarianceStampedConstPtr& pose) { return pose->pose.pose; }
 
+inline void keepYaw(Quaternion& quaternion)
+{
+	tf::Quaternion q;
+	q.setRPY(0, 0, tf::getYaw(quaternion));
+	tf::quaternionTFToMsg(q, quaternion);
+}
+
 template <typename T>
 void callback(const T& msg)
 {
@@ -88,10 +97,29 @@ void callback(const T& msg)
 		if (!offset_frame_id.empty()) {
 			if (reset_flag || msg->header.stamp - vpe.header.stamp > offset_timeout) {
 				// calculate the offset
-				offset = tf_buffer.lookupTransform(local_frame_id, frame_id,
-				                                   msg->header.stamp, ros::Duration(0.02));
-				// offset.header.frame_id = vpe.header.frame_id;
-				offset.child_frame_id = offset_frame_id;
+				if (!frame_id.empty()) {
+					// calculate from TF
+					offset = tf_buffer.lookupTransform(local_frame_id, frame_id,
+					                                   msg->header.stamp, ros::Duration(0.02));
+					// offset.header.frame_id = vpe.header.frame_id;
+					offset.child_frame_id = offset_frame_id;
+
+				} else {
+					// calculate transform between pose in vpe frame and pose in local frame
+					TransformStamped local_pose = tf_buffer.lookupTransform(local_frame_id, child_frame_id,
+					                                                        msg->header.stamp, ros::Duration(0.02));
+					keepYaw(local_pose.transform.rotation);
+
+					tf::Transform vpeTransform, poseTransform;
+					tf::poseMsgToTF(vpe.pose, vpeTransform);
+					tf::transformMsgToTF(local_pose.transform, poseTransform);
+					tf::Transform offset_tf = vpeTransform.inverseTimes(poseTransform);
+					tf::transformTFToMsg(offset_tf, offset.transform);
+					offset.header.frame_id = local_frame_id;
+					offset.header.stamp = msg->header.stamp;
+					offset.child_frame_id = offset_frame_id;
+				}
+
 				br.sendTransform(offset);
 				reset_flag = false;
 				ROS_INFO("offset reset");
@@ -122,10 +150,11 @@ int main(int argc, char **argv) {
 
 	tf2_ros::TransformListener tf_listener(tf_buffer);
 
-	nh_priv.param<string>("frame_id", frame_id, "");
-	nh_priv.param<string>("offset_frame_id", offset_frame_id, "");
-	nh_priv.param<string>("mavros/local_position/frame_id", local_frame_id, "map");
-	nh_priv.param<string>("mavros/local_position/tf/child_frame_id", child_frame_id, "base_link");
+	nh_priv.param<string>("frame_id", frame_id, ""); // name for used visual pose frame
+	nh_priv.param<string>("offset_frame_id", offset_frame_id, ""); // name for published offset frame
+
+	nh.param<string>("mavros/local_position/frame_id", local_frame_id, "map");
+	nh.param<string>("mavros/local_position/tf/child_frame_id", child_frame_id, "base_link");
 	offset_timeout = ros::Duration(nh_priv.param("offset_timeout", 3.0));
 
 	if (!frame_id.empty()) {
@@ -141,11 +170,11 @@ int main(int argc, char **argv) {
 	vpe_pub = nh_priv.advertise<PoseStamped>("vpe", 1);
 	//vpe_cov_pub = nh_priv_.advertise<PoseStamped>("pose_cov_pub", 1);
 
-	if (nh_priv.param("publish_zero", false)) {
+	if (nh_priv.param("force_init", false) || nh_priv.param("publish_zero", false)) { // publish_zero is old name
 		// publish zero to initialize the local position
 		zero_timer = nh.createTimer(ros::Duration(0.1), &publishZero);
-		publish_zero_timout = ros::Duration(nh_priv.param("publish_zero_timout", 5.0));
-		publish_zero_duration = ros::Duration(nh_priv.param("publish_zero_duration", 5.0));
+		publish_zero_timeout = ros::Duration(nh_priv.param("force_init_timeout", 5.0));
+		publish_zero_duration = ros::Duration(nh_priv.param("force_init_duration", 5.0));
 		local_position_sub = nh.subscribe("mavros/local_position/pose", 1, &localPositionCallback);
 	}
 
